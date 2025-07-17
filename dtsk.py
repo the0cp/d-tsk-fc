@@ -1,5 +1,7 @@
 import numpy as np
 from kddcup import load_kddcup99
+import pickle
+import logging
 
 class D_TSK_FC:
     def __init__(self, DP, K_dp_list, alpha, C):
@@ -19,28 +21,20 @@ class D_TSK_FC:
         return np.exp(-((x - center)**2) / (2 * sigma**2))
 
     def _calculate_h(self, x_sample, dp):
-        d = len(x_sample)
+        N, d = x_sample.shape
         K_dp = self.K_dp_list[dp-1]
-        h = np.zeros(K_dp)
-
-        for l in range(K_dp):
-            w_il = 1.0 
-            for j in range(d):
-                gamma_jl = self.U_matrices[dp][j, l]
-                
-                if gamma_jl == 0:
-                    v_jl = 1.0
-                else:
-                    prod_term = 1.0
-                    for k in range(5):
-                        u_k = self._gaussian_mf(x_sample[j], self.centers[k], self.sigmas[k])
-                        rc_jkl = self.RC_matrices[dp][j, k, l]
-                        prod_term *= (1 - rc_jkl * u_k)
-                    v_jl = 1 - prod_term
-                w_il *= v_jl
-            h[l] = w_il
-            
-        return h
+        
+        gamma = self.U_matrices[dp]  # Shape: (d, K_dp)
+        rc = self.RC_matrices[dp]    # Shape: (d, 5, K_dp)
+        
+        u_values = self._gaussian_mf(x_sample[:, :, np.newaxis], self.centers[np.newaxis, np.newaxis, :], self.sigmas[np.newaxis, np.newaxis, :])
+        
+        term = rc[np.newaxis, :, :, :] * u_values[:, :, :, np.newaxis]
+        v_jl = 1 - np.prod(1 - term, axis=2)
+        v_jl_selected = np.where(gamma[np.newaxis, :, :] == 1, v_jl, 1)
+        
+        H_dp = np.prod(v_jl_selected, axis=1)
+        return H_dp
 
     def fit(self, X, T):
         """
@@ -109,6 +103,18 @@ class D_TSK_FC:
             predictions.append(predicted_class)
             
         return np.array(predictions)
+    
+    def save(self, filepath):
+        with open(filepath, 'wb') as f:
+            pickle.dump(self, f)
+        logging.info(f"D-TSK-FC model saved to {filepath}")
+
+    @staticmethod
+    def load(filepath):
+        with open(filepath, 'rb') as f:
+            model = pickle.load(f)
+        logging.info(f"D-TSK-FC model loaded from {filepath}")
+        return model
 
 if __name__ == '__main__':
     kdd_file_path = 'kddcup.data'
